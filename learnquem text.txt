@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Learnquem</title>
+    <!-- Load Tailwind CSS --><script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* CRITICAL MOBILE FIX: Ensures the body and container fill the exact screen height for proper flex-column stacking, preventing virtual keyboard layout issues. */
+        html, body {
+            height: 100%;
+        }
+        
+        /* Custom scrollbar for the chat history container */
+        #chat-history::-webkit-scrollbar {
+            width: 8px;
+        }
+        #chat-history::-webkit-scrollbar-thumb {
+            background-color: #4a5568; /* Darker gray */
+            border-radius: 4px;
+        }
+        #chat-history::-webkit-scrollbar-track {
+            background: #2d3748; /* Even darker gray */
+        }
+        /* Style for code blocks in the response */
+        .ai-message pre {
+            background-color: #1a202c; /* Deep dark background */
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin-top: 0.75rem;
+            overflow-x: auto;
+            color: #48bb78; /* Green text for code */
+        }
+        /* Style for citations (still kept in case future features use grounding) */
+        .citations {
+            font-size: 0.75rem;
+            color: #a0a0a0;
+            margin-top: 0.5rem;
+            border-top: 1px solid #3d4a5b;
+            padding-top: 0.5rem;
+        }
+        .citations a {
+            color: #63b3ed; /* Light blue link color */
+            text-decoration: none;
+        }
+        .citations a:hover {
+            text-decoration: underline;
+        }
+        /* Styling for markdown lists */
+        .ai-message ul, .ai-message ol {
+            margin-left: 1.5rem;
+            padding-left: 0;
+            list-style-position: outside;
+        }
+        .ai-message ul {
+            list-style-type: disc;
+        }
+        .ai-message ol {
+            list-style-type: decimal;
+        }
+        .ai-message li {
+            margin-bottom: 0.5rem;
+        }
+        /* Ensure smooth transitions */
+        .transition-colors {
+            transition: background-color 0.2s, border-color 0.2s;
+        }
+        /* Style for headings (h2/h3) created by markdown conversion */
+        .ai-message h2, .ai-message h3 {
+            margin-bottom: 0.5rem;
+            color: #48bb78; /* Teal/Green for better visibility */
+        }
+        .ai-message h2 {
+            font-size: 1.25rem; /* Larger for major steps */
+            font-weight: bold;
+        }
+        .ai-message h3 {
+             font-size: 1.1rem;
+             font-weight: 600;
+        }
+        
+        /* Custom styles for the TTS view */
+        #tts-output-container audio {
+            width: 100%;
+            border-radius: 0.5rem;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 font-sans h-screen flex flex-col antialiased">
+
+    <!-- Main Application Container -->
+    <!-- h-screen ensures it occupies the exact available height -->
+    <div id="app-container" class="flex flex-col flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 lg:p-8 h-full">
+
+        <!-- Header -->
+        <header class="text-center py-4 mb-6 border-b border-gray-700 flex-shrink-0">
+            <h1 class="text-3xl font-extrabold text-teal-400 tracking-tight">
+                Learnquem
+            </h1>
+            <p class="text-gray-400 mt-1">Your comprehensive tool for chat, image generation, recipes, and more.</p>
+        </header>
+
+        <!-- Navigation Tabs -->
+        <div class="flex mb-6 border-b border-gray-700 overflow-x-auto pb-1 flex-shrink-0">
+            <button onclick="switchView('chat')" id="tab-chat" class="flex-shrink-0 px-4 py-2 text-sm font-medium border-b-2 border-teal-500 text-teal-400 focus:outline-none">AI Assistant Chat</button>
+            <button onclick="switchView('image')" id="tab-image" class="flex-shrink-0 px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500 focus:outline-none">Image Generator</button>
+            <button onclick="switchView('tts')" id="tab-tts" class="flex-shrink-0 px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500 focus:outline-none">Text-to-Speech</button>
+            <button onclick="switchView('recipes')" id="tab-recipes" class="flex-shrink-0 px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500 focus:outline-none">Food Recipes</button>
+        </div>
+
+        <!-- View Container -->
+        <div id="view-container" class="flex flex-col flex-1 min-h-0">
+
+            <!-- --------------------------------- AI ASSISTANT CHAT VIEW --------------------------------- -->
+            <div id="chat-view" class="flex flex-col flex-1 min-h-0">
+                <!-- Chat History -->
+                <div id="chat-history" class="flex-1 overflow-y-auto bg-gray-800 rounded-xl p-4 sm:p-6 mb-4 shadow-2xl space-y-4 min-h-0">
+                    <!-- Protocol Warning (Will be inserted here if needed) -->
+                    <div id="protocol-warning-message"></div>
+                    <!-- Initial welcome message -->
+                    <div class="flex justify-start">
+                        <div class="ai-message bg-gray-700/70 text-gray-200 p-3 rounded-tr-xl rounded-b-xl max-w-3xl shadow-lg">
+                            <p class="font-semibold text-teal-300 mb-1">AI Assistant</p>
+                            <p>Hello! I'm ready to help you with any question—from complex math problems to **funny jokes** in Hindi, German, or any language you choose. Just type your query, and I'll provide a quick, fully explained, step-by-step solution.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Input Area -->
+                <div class="w-full bg-gray-800 p-4 rounded-xl shadow-2xl border border-gray-700 flex-shrink-0">
+                    <div class="flex items-end space-x-3">
+                        <textarea id="user-input"
+                                  class="flex-1 p-3 text-sm bg-gray-700 border border-gray-600 rounded-lg focus:ring-teal-500 focus:border-teal-500 placeholder-gray-400 resize-none overflow-y-hidden transition-colors"
+                                  placeholder="Ask a question, solve a math problem, or ask for a joke in German!..."
+                                  rows="1"
+                                  oninput="autoExpand(this)"
+                                  onkeydown="if(event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); handleSend(); }"></textarea>
+
+                        <button id="send-button"
+                                onclick="handleSend()"
+                                class="p-3 bg-teal-600 hover:bg-teal-500 text-white rounded-xl shadow-lg flex items-center justify-center transition-colors disabled:bg-gray-600 disabled:cursor-not-allowed"
+                                aria-label="Send Message"
+                                title="Send Message">
+                            <!-- Static Send Icon (Replaced Lucide to fix local file errors) -->
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5">
+                                <line x1="22" x2="11" y1="2" y2="13"></line>
+                                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Hidden Loading Indicator (Chat) -->
+                <div id="loading-spinner" class="mt-4 flex justify-center items-center space-x-2 text-teal-400 hidden flex-shrink-0">
+                    <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span class="text-sm">Thinking... Generating detailed response.</span>
+                </div>
+            </div>
+
+            <!-- --------------------------------- IMAGE GENERATOR VIEW --------------------------------- -->
+            <div id="image-view" class="flex flex-col flex-1 hidden min-h-0">
+                <div class="flex-1 p-4 sm:p-6 mb-4 space-y-4 overflow-y-auto">
+                    <h2 class="text-2xl font-bold text-teal-300">High-Quality Image Generator</h2>
+                    <p class="text-gray-400">Enter a descriptive prompt to generate a stunning, high-definition image. (Uses Imagen 3.0 model.)</p>
+                    
+                    <!-- Prompt Input -->
+                    <textarea id="image-prompt-input"
+                              class="w-full p-3 text-sm bg-gray-700 border border-gray-600 rounded-lg focus:ring-teal-500 focus:border-teal-500 placeholder-gray-400 resize-y overflow-y-hidden transition-colors"
+                              placeholder="Describe the image you want to generate (e.g., 'A majestic eagle flying over snow-capped mountains at sunrise, 8k, cinematic style')..."
+                              rows="4"></textarea>
+
+                    <button onclick="generateImage()" id="image-generate-button"
+                            class="w-full p-3 bg-teal-600 hover:bg-teal-500 text-white font-semibold rounded-xl shadow-lg transition-colors disabled:bg-gray-600 disabled:cursor-not-allowed">
+                        Generate High-Quality Image
+                    </button>
+
+                    <hr class="border-gray-700 mt-6">
+
+                    <!-- Image Output -->
+                    <div id="image-output-container" class="mt-6 min-h-[300px] flex items-center justify-center flex-col">
+                        <p class="text-gray-500">Generated image will appear here.</p>
+                    </div>
+                    
+                    <!-- Hidden Loading Indicator (Image) -->
+                    <div id="image-loading-spinner" class="mt-4 flex justify-center items-center space-x-2 text-teal-400 hidden">
+                        <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span class="text-sm">Generating image... This usually takes 5-7 seconds.</span>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- --------------------------------- TEXT-TO-SPEECH (TTS) VIEW --------------------------------- -->
+            <div id="tts-view" class="flex flex-col flex-1 hidden min-h-0">
+                <div class="flex-1 p-4 sm:p-6 mb-4 space-y-4 overflow-y-auto">
+                    <h2 class="text-2xl font-bold text-blue-400">Text-to-Speech Generator</h2>
+                    <p class="text-gray-400">Convert text into natural-sounding speech. (Uses Gemini TTS model.)</p>
+
+                    <!-- Prompt Input -->
+                    <textarea id="tts-prompt-input"
+                              class="w-full p-3 text-sm bg-gray-700 border border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 placeholder-gray-400 resize-y overflow-y-hidden transition-colors"
+                              placeholder="Enter the text you want to convert to speech (e.g., 'Say cheerfully: Have a wonderful day!')..."
+                              rows="4"></textarea>
+                    
+                    <select id="tts-voice-select" class="w-full p-3 text-sm bg-gray-700 border border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-white">
+                        <option value="Kore">Kore (Firm)</option>
+                        <option value="Zephyr">Zephyr (Bright)</option>
+                        <option value="Puck">Puck (Upbeat)</option>
+                        <option value="Charon">Charon (Informative)</option>
+                        <option value="Fenrir">Fenrir (Excitable)</option>
+                        <option value="Leda">Leda (Youthful)</option>
+                    </select>
+
+                    <button onclick="generateTTS()" id="tts-generate-button"
+                            class="w-full p-3 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl shadow-lg transition-colors disabled:bg-gray-600 disabled:cursor-not-allowed">
+                        Generate Speech Audio
+                    </button>
+
+                    <hr class="border-gray-700 mt-6">
+
+                    <!-- TTS Output -->
+                    <div id="tts-output-container" class="mt-6 min-h-[100px] flex items-center justify-center flex-col">
+                        <p class="text-gray-500">Generated audio will appear here.</p>
+                    </div>
+
+                    <!-- Hidden Loading Indicator (TTS) -->
+                    <div id="tts-loading-spinner" class="mt-4 flex justify-center items-center space-x-2 text-blue-400 hidden">
+                        <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span class="text-sm">Generating audio...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- --------------------------------- RECIPES VIEW --------------------------------- -->
+            <div id="recipes-view" class="flex flex-col flex-1 hidden min-h-0">
+                <div class="flex-1 p-4 sm:p-6 mb-4 space-y-4 overflow-y-auto">
+                    <h2 class="text-2xl font-bold text-green-400">Quick Recipe Generator</h2>
+                    <p class="text-gray-400">Search for any dish, and the AI will quickly provide a complete, structured recipe with **ingredients** and **step-by-step instructions**.</p>
+                    
+                    <!-- Prompt Input -->
+                    <input type="text" id="recipe-search-input"
+                           class="w-full p-3 text-sm bg-gray-700 border border-gray-600 rounded-lg focus:ring-green-500 focus:border-green-500 placeholder-gray-400 transition-colors"
+                           placeholder="E.g., Authentic Chicken Tikka Masala, Vegan Chili, Quick Chocolate Chip Cookies..." />
+
+                    <button onclick="generateRecipe()" id="recipe-generate-button"
+                            class="w-full p-3 bg-green-600 hover:bg-green-500 text-white font-semibold rounded-xl shadow-lg transition-colors disabled:bg-gray-600 disabled:cursor-not-allowed">
+                        Find Recipe
+                    </button>
+
+                    <hr class="border-gray-700 mt-6">
+
+                    <!-- Recipe Output -->
+                    <div id="recipe-output-container" class="mt-6 min-h-[300px] flex items-center justify-center flex-col">
+                        <p class="text-gray-500">The structured recipe will appear here.</p>
+                    </div>
+                    
+                    <!-- Hidden Loading Indicator (Recipe) -->
+                    <div id="recipe-loading-spinner" class="mt-4 flex justify-center items-center space-x-2 text-green-400 hidden">
+                        <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span class="text-sm">Fetching and structuring recipe...</span>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <script>
+        // --- CONSTANTS ---
+        const CHAT_MODEL = "gemini-2.5-flash-preview-09-2025";
+        const TTS_MODEL = "gemini-2.5-flash-preview-tts";
+        const IMAGE_MODEL = "imagen-3.0-generate-002";
+        const apiKey = ""; // API key is handled automatically by the environment
+        
+        const chatApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${CHAT_MODEL}:generateContent?key=${apiKey}`;
+        const imageApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${IMAGE_MODEL}:predict?key=${apiKey}`;
+        const ttsApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${TTS_MODEL}:generateContent?key=${apiKey}`;
+
+        // System Instruction: Essential for guiding the AI's behavior
+        const SYSTEM_INSTRUCTION = "You are a highly detailed and exceptionally articulate AI assistant. Your primary goal is to provide comprehensive, full explanations for all user queries. You are also proficient at generating funny, context-appropriate jokes in various languages including English, Hindi, Korean, German, and French, when explicitly requested. For mathematical or logical questions, you MUST show every intermediate step, clearly label them using headings (H2 or H3), and provide the final solution in a structured format, using LaTeX-style notation where appropriate ($...$ for inline, $$...$$ for display equations). For general knowledge, provide a deep, well-structured explanation with clear headings.";
+        
+        // JSON Schema for structured recipe output
+        const RECIPE_SCHEMA = {
+            type: "OBJECT",
+            properties: {
+                recipeName: { type: "STRING", description: "The concise name of the dish." },
+                description: { type: "STRING", description: "A brief, appetizing description of the recipe." },
+                prepTime: { type: "STRING", description: "Estimated preparation time (e.g., 20 minutes)." },
+                cookTime: { type: "STRING", description: "Estimated cooking time (e.g., 45 minutes)." },
+                servings: { type: "STRING", description: "Number of servings (e.g., 4 people)." },
+                ingredients: {
+                    type: "ARRAY",
+                    description: "A list of all ingredients with their precise quantities.",
+                    items: { type: "STRING" }
+                },
+                instructions: {
+                    type: "ARRAY",
+                    description: "A complete list of numbered, easy-to-follow steps.",
+                    items: { type: "STRING" }
+                }
+            },
+            required: ["recipeName", "ingredients", "instructions"],
+            propertyOrdering: ["recipeName", "description", "prepTime", "cookTime", "servings", "ingredients", "instructions"]
+        };
+        // ---------------------------------------------------------------------------------
+
+        // DOM Elements for Chat
+        const chatHistory = document.getElementById('chat-history');
+        const userInput = document.getElementById('user-input');
+        const sendButton = document.getElementById('send-button');
+        const loadingSpinner = document.getElementById('loading-spinner'); // Chat spinner
+        const protocolWarningDiv = document.getElementById('protocol-warning-message');
+        
+        // DOM Elements for Image
+        const imagePromptInput = document.getElementById('image-prompt-input');
+        const imageOutputContainer = document.getElementById('image-output-container');
+        const imageLoadingSpinner = document.getElementById('image-loading-spinner');
+        const imageGenerateButton = document.getElementById('image-generate-button');
+
+        // DOM Elements for TTS
+        const ttsPromptInput = document.getElementById('tts-prompt-input');
+        const ttsVoiceSelect = document.getElementById('tts-voice-select');
+        const ttsOutputContainer = document.getElementById('tts-output-container');
+        const ttsLoadingSpinner = document.getElementById('tts-loading-spinner');
+        const ttsGenerateButton = document.getElementById('tts-generate-button');
+        
+        // DOM Elements for Recipes
+        const recipeSearchInput = document.getElementById('recipe-search-input');
+        const recipeOutputContainer = document.getElementById('recipe-output-container');
+        const recipeLoadingSpinner = document.getElementById('recipe-loading-spinner');
+        const recipeGenerateButton = document.getElementById('recipe-generate-button');
+
+
+        // --- UTILITY FUNCTIONS ---
+
+        /**
+         * Converts a base64 string to an ArrayBuffer.
+         * Used for converting base64 TTS audio data.
+         */
+        function base64ToArrayBuffer(base64) {
+            const binaryString = atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        /**
+         * Writes a string to a DataView. Helper for pcmToWav.
+         */
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+
+        /**
+         * Converts raw signed 16-bit PCM audio data to a WAV Blob with a proper header.
+         * This is necessary because browsers can't natively play raw PCM data.
+         */
+        function pcmToWav(pcm16, sampleRate) {
+            const numChannels = 1;
+            const bitDepth = 16;
+
+            // PCM data buffer
+            const buffer = new ArrayBuffer(44 + pcm16.length * 2);
+            const view = new DataView(buffer);
+
+            // Write WAV file header
+            // RIFF identifier
+            writeString(view, 0, 'RIFF');
+            // File size (36 + data size)
+            view.setUint32(4, 36 + pcm16.length * 2, true);
+            // WAVE identifier
+            writeString(view, 8, 'WAVE');
+            // FMT chunk
+            writeString(view, 12, 'fmt ');
+            // Format chunk size (16 for PCM)
+            view.setUint32(16, 16, true);
+            // Audio format (1 for PCM)
+            view.setUint16(20, 1, true);
+            // Number of channels
+            view.setUint16(22, numChannels, true);
+            // Sample rate
+            view.setUint32(24, sampleRate, true);
+            // Byte rate (SampleRate * NumChannels * BitDepth/8)
+            view.setUint32(28, sampleRate * numChannels * (bitDepth / 8), true);
+            // Block align (NumChannels * BitDepth/8)
+            view.setUint16(32, numChannels * (bitDepth / 8), true);
+            // Bits per sample
+            view.setUint16(34, bitDepth, true);
+            // DATA chunk
+            writeString(view, 36, 'data');
+            // Data size
+            view.setUint32(40, pcm16.length * 2, true);
+
+            // Write PCM data
+            let offset = 44;
+            for (let i = 0; i < pcm16.length; i++) {
+                // Ensure correct byte order for 16-bit integers
+                view.setInt16(offset, pcm16[i], true); 
+                offset += 2;
+            }
+
+            return new Blob([view], { type: 'audio/wav' });
+        }
+
+
+        /**
+         * Converts a base64 string to a Blob object.
+         * @param {string} base64 - The base64 string (e.g., "data:image/png;base64,...").
+         * @param {string} contentType - The content type of the data (e.g., "image/png").
+         * @returns {Blob} The Blob object.
+         */
+        function base64ToBlob(base64, contentType) {
+            const byteCharacters = atob(base64.split(',')[1] || base64);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            return new Blob([byteArray], { type: contentType });
+        }
+        
+        /**
+         * Downloads the generated image.
+         */
+        function downloadImage(base64Data, prompt) {
+            const filename = `AI_Generated_Image_${prompt.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50)}.png`;
+            const blob = base64ToBlob(base64Data, 'image/png');
+            
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url); // Clean up the object URL
+        }
+
+
+        /**
+         * Standard fetch with exponential backoff for API calls.
+         */
+        async function fetchWithBackoff(url, payload, maxRetries = 5) {
+            for (let attempt = 0; attempt < maxRetries; attempt++) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (response.ok) {
+                        return await response.json();
+                    } else if (response.status === 429 || response.status >= 500) {
+                        const delay = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
+                        if (attempt < maxRetries - 1) {
+                            await new Promise(resolve => setTimeout(resolve, delay));
+                            continue;
+                        }
+                    }
+                    throw new Error(`API error: ${response.status} ${response.statusText}`);
+
+                } catch (error) {
+                    console.error('Fetch error:', error);
+                    if (attempt === maxRetries - 1) {
+                        // CRITICAL: Throw the specific error the user is seeing.
+                        throw new Error('Failed to fetch response after multiple retries.');
+                    }
+                    const delay = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
+            throw new Error('Unrecoverable fetch failure.');
+        }
+
+        // --- CHAT LOGIC ---
+
+        /**
+         * Utility to convert basic Markdown to HTML for displaying responses.
+         */
+        function markdownToHtml(markdownText) {
+            let html = markdownText;
+
+            // Handle H1 and H2 headings (must be first)
+            html = html.replace(/^##\s+(.*)$/gm, '<h3 class="text-lg font-bold mt-4 mb-2 text-teal-300">$1</h3>');
+            html = html.replace(/^#\s+(.*)$/gm, '<h2 class="text-xl font-extrabold mt-4 mb-2 text-teal-200 border-b border-gray-600 pb-1">$1</h2>');
+            
+            // Handle display math equations (must be before code blocks)
+            html = html.replace(/\$\$([\s\S]*?)\$\$/g, '<div class="text-lg my-3 p-2 bg-gray-700/50 rounded-lg overflow-x-auto">$$$1$$</div>');
+
+            // Handle code blocks (multi-line)
+            html = html.replace(/```(.*?)```/gs, (match, content) => {
+                const codeContent = content.trim();
+                const codeLines = codeContent.split('\n');
+                const language = codeLines[0].match(/^[a-zA-Z]+/)?.[0] || '';
+                let contentWithoutLanguage = codeContent;
+
+                if (language && codeLines.length > 1 && codeLines[0] === language) {
+                    contentWithoutLanguage = codeLines.slice(1).join('\n');
+                }
+
+                return `<pre><code>${contentWithoutLanguage.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>`;
+            });
+
+            // Handle inline code and inline math equations (must be after code blocks)
+            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+            html = html.replace(/\$([^\$]+)\$/g, '<code class="font-mono bg-gray-700/50 text-teal-300 px-1 rounded">$1</code>');
+
+
+            // Handle bold and italics (must be done after code blocks)
+            html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+            
+            // Handle lists (basic conversion for ul/ol)
+            html = html.replace(/^(\s*[\*\-]\s+.*(\n|$))+/gm, (match) => {
+                let listHtml = '<ul>';
+                match.trim().split('\n').forEach(line => {
+                    if (line.trim().startsWith('*') || line.trim().startsWith('-')) {
+                        listHtml += `<li>${line.substring(line.indexOf(' ')).trim()}</li>`;
+                    }
+                });
+                return listHtml + '</ul>';
+            });
+            html = html.replace(/^(\s*\d+\.\s+.*(\n|$))+/gm, (match) => {
+                let listHtml = '<ol>';
+                match.trim().split('\n').forEach(line => {
+                    const match = line.trim().match(/^\d+\.\s+(.*)/);
+                    if (match) {
+                        listHtml += `<li>${match[1]}</li>`;
+                    }
+                });
+                return listHtml + '</ol>';
+            });
+
+            // Handle newlines
+            html = html.replace(/\n/g, '<br>');
+
+            return html;
+        }
+
+        function renderMessage(content, role, sources = []) {
+            const isUser = role === 'user';
+            const containerClass = isUser ? 'justify-end' : 'justify-start';
+            const messageClass = isUser ? 'bg-teal-800 text-white rounded-tl-xl rounded-b-xl' : 'bg-gray-700/70 text-gray-200 rounded-tr-xl rounded-b-xl ai-message';
+            const roleName = isUser ? 'You' : 'AI Assistant';
+            
+            let messageHtml = '';
+
+            if (isUser) {
+                // User message (standard rendering)
+                messageHtml = `
+                    <div class="flex ${containerClass}">
+                        <div class="${messageClass} p-3 max-w-3xl shadow-lg">
+                            <p class="font-semibold ${isUser ? 'hidden' : 'text-teal-300'} mb-1">${roleName}</p>
+                            <div class="text-sm">
+                                ${content}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                // AI message
+                const htmlContent = markdownToHtml(content);
+                
+                messageHtml = `
+                    <div class="flex ${containerClass}">
+                        <div class="${messageClass} p-3 max-w-3xl shadow-lg relative">
+                            <p class="font-semibold text-teal-300 mb-1">AI Assistant</p>
+                            <div class="text-sm">
+                                ${htmlContent}
+                            </div>
+                            ${sources.length > 0 ? `
+                                <div class="citations mt-3 text-xs text-gray-400">
+                                    <p class="font-semibold mb-1">Sources:</p>
+                                    ${sources.map((source, index) =>
+                                        `<a href="${source.uri}" target="_blank" rel="noopener noreferrer" class="block truncate hover:text-teal-300">
+                                            [${index + 1}] ${source.title || source.uri}
+                                        </a>`
+                                    ).join('')}
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            }
+
+            chatHistory.insertAdjacentHTML('beforeend', messageHtml);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+
+
+        async function generateResponse(query) {
+            // Check if the protocol warning is visible and skip if it is.
+            if (!protocolWarningDiv.classList.contains('hidden')) {
+                renderMessage("The API call is blocked by your browser's security settings (CORS). Please follow the instructions above to run the app using a local web server (like `http://localhost:8000`).", 'ai');
+                return;
+            }
+
+            const payload = {
+                contents: [{ parts: [{ text: query }] }],
+                systemInstruction: {
+                    parts: [{ text: SYSTEM_INSTRUCTION }]
+                },
+            };
+
+            loadingSpinner.classList.remove('hidden');
+            sendButton.disabled = true;
+            userInput.disabled = true;
+
+            try {
+                const result = await fetchWithBackoff(chatApiUrl, payload);
+                const candidate = result.candidates?.[0];
+
+                if (candidate && candidate.content?.parts?.[0]?.text) {
+                    const text = candidate.content.parts[0].text;
+                    let sources = [];
+                    renderMessage(text, 'ai', sources);
+
+                } else {
+                    renderMessage('I apologize, but I received an empty or malformed response from the model. This is often a temporary server issue. Please try rephrasing your question or waiting a moment.', 'ai');
+                }
+
+            } catch (error) {
+                console.error('An unrecoverable error occurred during API call:', error.message);
+                renderMessage(`A critical error occurred: ${error.message} The issue might be a network restriction or security blockage. Please ensure you are running the app over http/https.`, 'ai');
+            } finally {
+                loadingSpinner.classList.add('hidden');
+                sendButton.disabled = false;
+                userInput.disabled = false;
+                userInput.focus();
+            }
+        }
+
+        function handleSend() {
+            const query = userInput.value.trim();
+
+            if (query === '') {
+                return;
+            }
+
+            renderMessage(query, 'user');
+
+            userInput.value = '';
+            autoExpand(userInput);
+
+            generateResponse(query);
+        }
+
+        function autoExpand(element) {
+            element.style.height = 'auto';
+            element.style.height = (element.scrollHeight) + 'px';
+        }
+        
+        // --- IMAGE GENERATOR LOGIC ---
+
+        /**
+         * Function for generating a real image using the Imagen 3.0 API.
+         */
+        async function generateImage() {
+            const prompt = imagePromptInput.value.trim();
+
+            if (!prompt) {
+                imageOutputContainer.innerHTML = '<p class="text-red-400 text-center">Please enter a prompt to generate an image.</p>';
+                return;
+            }
+
+            // Check if the protocol warning is visible and skip if it is.
+            if (!protocolWarningDiv.classList.contains('hidden')) {
+                imageOutputContainer.innerHTML = '<p class="text-red-400 text-center">API calls are blocked. Please run the app using a local web server (http/https) to enable image generation.</p>';
+                return;
+            }
+
+
+            // 1. Show Loading State
+            imageOutputContainer.innerHTML = '';
+            imageLoadingSpinner.classList.remove('hidden');
+            imageGenerateButton.disabled = true;
+
+            const payload = { 
+                instances: { prompt: prompt }, 
+                parameters: { "sampleCount": 1 } 
+            };
+
+            try {
+                // Fetch with backoff
+                const result = await fetchWithBackoff(imageApiUrl, payload);
+                
+                const base64Data = result.predictions?.[0]?.bytesBase64Encoded;
+
+                if (base64Data) {
+                    const imageUrl = `data:image/png;base64,${base64Data}`;
+                    imageOutputContainer.innerHTML = `
+                        <div class="w-full max-w-xl bg-gray-900 rounded-xl shadow-2xl overflow-hidden mx-auto p-4 flex flex-col items-center">
+                            <img src="${imageUrl}" alt="Generated Image for prompt: ${prompt}" class="w-full h-auto object-cover rounded-xl border border-gray-700 mb-4" />
+                            <button onclick="downloadImage('${imageUrl}', '${prompt.replace(/'/g, "\\'")}')" 
+                                    class="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg shadow-md transition-colors flex items-center space-x-2">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                </svg>
+                                <span>Download Image</span>
+                            </button>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-3 text-center">Image generated successfully by Imagen 3.0.</p>
+                    `;
+                } else {
+                    imageOutputContainer.innerHTML = '<p class="text-red-400 text-center">Image generation failed: No image data returned. Try a different prompt.</p>';
+                }
+
+            } catch (error) {
+                console.error('Image generation error:', error);
+                imageOutputContainer.innerHTML = `<p class="text-red-400 text-center">An error occurred during generation: ${error.message}</p>`;
+            } finally {
+                imageLoadingSpinner.classList.add('hidden');
+                imageGenerateButton.disabled = false;
+            }
+        }
+
+
+        // --- TEXT-TO-SPEECH LOGIC ---
+
+        async function generateTTS() {
+            const prompt = ttsPromptInput.value.trim();
+            const voiceName = ttsVoiceSelect.value;
+            const sampleRate = 24000; // Standard rate for this TTS model
+
+            if (!prompt) {
+                ttsOutputContainer.innerHTML = '<p class="text-red-400 text-center">Please enter text to generate speech.</p>';
+                return;
+            }
+            
+            // Check if the protocol warning is visible and skip if it is.
+            if (!protocolWarningDiv.classList.contains('hidden')) {
+                ttsOutputContainer.innerHTML = '<p class="text-red-400 text-center">API calls are blocked. Please run the app using a local web server (http/https) to enable TTS generation.</p>';
+                return;
+            }
+
+            // 1. Show Loading State
+            ttsOutputContainer.innerHTML = '';
+            ttsLoadingSpinner.classList.remove('hidden');
+            ttsGenerateButton.disabled = true;
+
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                    responseModalities: ["AUDIO"],
+                    speechConfig: {
+                        voiceConfig: {
+                            prebuiltVoiceConfig: { voiceName: voiceName }
+                        }
+                    }
+                },
+            };
+
+            try {
+                const result = await fetchWithBackoff(ttsApiUrl, payload);
+                const part = result?.candidates?.[0]?.content?.parts?.[0];
+                const audioData = part?.inlineData?.data;
+                const mimeType = part?.inlineData?.mimeType;
+
+                if (audioData && mimeType && mimeType.startsWith("audio/")) {
+                    // API returns signed PCM16 audio data. We need to convert it to a WAV container.
+                    const pcmData = base64ToArrayBuffer(audioData);
+                    const pcm16 = new Int16Array(pcmData);
+                    const wavBlob = pcmToWav(pcm16, sampleRate);
+                    const audioUrl = URL.createObjectURL(wavBlob);
+                    
+                    ttsOutputContainer.innerHTML = `
+                        <div class="w-full max-w-xl mx-auto p-4 bg-gray-800 rounded-xl shadow-inner border border-gray-700">
+                            <audio controls class="bg-gray-700/50">
+                                <source src="${audioUrl}" type="audio/wav">
+                                Your browser does not support the audio element.
+                            </audio>
+                            <p class="text-xs text-gray-500 mt-2 text-center">Speech generated using the ${voiceName} voice.</p>
+                        </div>
+                    `;
+                } else {
+                    ttsOutputContainer.innerHTML = '<p class="text-red-400 text-center">Audio generation failed. No valid audio data returned.</p>';
+                }
+
+            } catch (error) {
+                console.error('TTS generation error:', error);
+                ttsOutputContainer.innerHTML = `<p class="text-red-400 text-center">An error occurred during TTS generation: ${error.message}</p>`;
+            } finally {
+                ttsLoadingSpinner.classList.add('hidden');
+                ttsGenerateButton.disabled = false;
+            }
+        }
+        
+        // --- RECIPE GENERATOR LOGIC ---
+
+        /**
+         * Renders the structured JSON recipe object into clean HTML.
+         */
+        function renderRecipe(recipe) {
+            let html = `
+                <div class="w-full max-w-2xl bg-gray-800 rounded-xl p-6 shadow-2xl border border-gray-700">
+                    <h2 class="text-3xl font-extrabold text-green-400 mb-2">${recipe.recipeName || 'Untitled Recipe'}</h2>
+                    <p class="text-gray-400 mb-4">${recipe.description || 'A delicious and easy recipe.'}</p>
+
+                    <div class="flex flex-wrap gap-4 text-sm font-medium mb-6">
+                        ${recipe.prepTime ? `<span class="bg-gray-700 p-2 rounded-full text-gray-300">Prep: ${recipe.prepTime}</span>` : ''}
+                        ${recipe.cookTime ? `<span class="bg-gray-700 p-2 rounded-full text-gray-300">Cook: ${recipe.cookTime}</span>` : ''}
+                        ${recipe.servings ? `<span class="bg-gray-700 p-2 rounded-full text-gray-300">Servings: ${recipe.servings}</span>` : ''}
+                    </div>
+
+                        <div class="grid md:grid-cols-2 gap-8">
+                        <!-- Ingredients -->
+                        <div>
+                            <h3 class="text-xl font-bold text-green-300 mb-3 border-b border-gray-700 pb-1">Ingredients</h3>
+                            <ul class="space-y-2 list-none p-0">
+                                ${recipe.ingredients.map(item => `<li class="flex items-start text-gray-300">
+                                    <svg class="w-4 h-4 text-green-400 mt-1 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
+                                    <span>${item}</span>
+                                </li>`).join('')}
+                            </ul>
+                        </div>
+
+                        <!-- Instructions -->
+                        <div>
+                            <h3 class="text-xl font-bold text-green-300 mb-3 border-b border-gray-700 pb-1">Instructions</h3>
+                            <ol class="space-y-4 list-decimal pl-5">
+                                ${recipe.instructions.map(item => `<li class="text-gray-300 pb-2">${item}</li>`).join('')}
+                            </ol>
+                        </div>
+                    </div>
+                </div>
+            `;
+            recipeOutputContainer.innerHTML = html;
+        }
+
+        /**
+         * Handles the API call for generating a structured recipe.
+         */
+        async function generateRecipe() {
+            const query = recipeSearchInput.value.trim();
+
+            if (!query) {
+                recipeOutputContainer.innerHTML = '<p class="text-red-400 text-center">Please enter the name of a dish to find its recipe.</p>';
+                return;
+            }
+            
+            // Check if the protocol warning is visible and skip if it is.
+            if (!protocolWarningDiv.classList.contains('hidden')) {
+                recipeOutputContainer.innerHTML = '<p class="text-red-400 text-center">API calls are blocked. Please run the app using a local web server (http/https) to enable recipe generation.</p>';
+                return;
+            }
+
+            // 1. Show Loading State
+            recipeOutputContainer.innerHTML = '';
+            recipeLoadingSpinner.classList.remove('hidden');
+            recipeGenerateButton.disabled = true;
+
+            const userPrompt = `Generate a complete, structured recipe for ${query}. Include all necessary details like prep time, cook time, and servings.`;
+
+            const payload = {
+                contents: [{ parts: [{ text: userPrompt }] }],
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: RECIPE_SCHEMA
+                },
+            };
+
+            try {
+                const result = await fetchWithBackoff(chatApiUrl, payload);
+                const jsonText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                
+                if (jsonText) {
+                    const recipe = JSON.parse(jsonText);
+                    renderRecipe(recipe);
+                } else {
+                    recipeOutputContainer.innerHTML = '<p class="text-red-400 text-center">Recipe generation failed. Could not parse structured JSON output. Try simplifying your query.</p>';
+                }
+
+            } catch (error) {
+                console.error('Recipe generation error:', error);
+                recipeOutputContainer.innerHTML = `<p class="text-red-400 text-center">A critical error occurred while fetching the recipe: ${error.message}.</p>`;
+            } finally {
+                recipeLoadingSpinner.classList.add('hidden');
+                recipeGenerateButton.disabled = false;
+            }
+        }
+
+
+        // --- NAVIGATION LOGIC ---
+
+        /**
+         * Switches the visible view between 'chat', 'image', 'tts', and 'recipes'.
+         */
+        function switchView(viewName) {
+            // Define all view IDs
+            const viewIds = {
+                chat: 'chat-view',
+                image: 'image-view',
+                tts: 'tts-view',
+                recipes: 'recipes-view'
+            };
+            
+            // Define all tab IDs
+            const tabIds = {
+                chat: 'tab-chat',
+                image: 'tab-image',
+                tts: 'tab-tts',
+                recipes: 'tab-recipes'
+            };
+            
+            // Define the primary color for each tab/view
+            const tabColors = {
+                chat: 'teal',
+                image: 'teal',
+                tts: 'blue',
+                recipes: 'green'
+            };
+
+            for (const key in viewIds) {
+                const isCurrentView = key === viewName;
+                document.getElementById(viewIds[key]).classList.toggle('hidden', !isCurrentView);
+                
+                const tab = document.getElementById(tabIds[key]);
+                const color = tabColors[key];
+
+                if (tab) {
+                    if (isCurrentView) {
+                        // Apply active styles
+                        tab.classList.remove('border-transparent', 'text-gray-400', 'hover:text-gray-200', 'hover:border-gray-500');
+                        tab.classList.add(`border-${color}-500`, `text-${color}-400`);
+                    } else {
+                        // Apply inactive styles
+                        tab.classList.add('border-transparent', 'text-gray-400', 'hover:text-gray-200', 'hover:border-gray-500');
+                        tab.classList.remove(`border-${color}-500`, `text-${color}-400`);
+                    }
+                }
+            }
+        }
+
+        // Initialize textarea height and handle external script loading
+        window.addEventListener('load', () => {
+            autoExpand(userInput);
+            userInput.focus();
+            
+            // CRITICAL DIAGNOSTIC CHECK: Display warning if running via file://
+            if (window.location.protocol === 'file:') {
+                protocolWarningDiv.innerHTML = `
+                    <div class="bg-red-900 border border-red-700 text-red-100 p-4 rounded-xl mb-4 text-sm font-semibold shadow-lg">
+                        <p class="flex items-center">
+                            <span class="text-xl mr-2">⚠️</span>
+                            SECURITY WARNING: API calls are currently blocked.
+                        </p>
+                        <p class="mt-2 font-normal">Your browser is preventing the app from connecting to the server because you are running it from a local disk (the 'file://' protocol).</p>
+                        <p class="mt-2 font-normal">**FIX:** Please run the app using a simple local web server (e.g., Python's \`http.server\`) and access it via \`http://localhost:8000/\`.</p>
+                    </div>
+                `;
+            } else {
+                protocolWarningDiv.classList.add('hidden');
+            }
+
+
+            // Set the initial view
+            switchView('chat');
+        });
+
+    </script>
+</body>
+</html>
